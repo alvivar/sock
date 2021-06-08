@@ -1,0 +1,6 @@
+
+    Support Bytes instead of Strings for the connection data.
+
+
+    2021.06.07
+    x Started prototype.
