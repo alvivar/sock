@@ -5,12 +5,12 @@ use std::{
 
 use mio::Token;
 
-struct Connection {
+pub struct Connection {
     token: Token,
     socket: TcpStream,
     is_open: bool,
     received: String,
-    to_send: String,
+    pub to_send: String,
 }
 
 impl Connection {
@@ -24,7 +24,7 @@ impl Connection {
         }
     }
 
-    fn read(&mut self) {
+    pub fn read(&mut self) {
         loop {
             let read = self.socket.read_to_string(&mut self.received);
 
@@ -49,7 +49,7 @@ impl Connection {
         }
     }
 
-    fn write(&mut self) {
+    pub fn write(&mut self) {
         match self.socket.write_all(self.to_send.as_bytes()) {
             Ok(_) => (),
             Err(_) => {
@@ -61,7 +61,7 @@ impl Connection {
         self.to_send.clear();
     }
 
-    fn to_send(&mut self, value: &str) {
+    pub fn set(&mut self, value: &str) {
         self.to_send.push_str(value);
     }
 }
