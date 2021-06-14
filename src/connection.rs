@@ -1,20 +1,17 @@
-use std::{
-    io::{Read, Write},
-    net::TcpStream,
-};
+use std::io::{Read, Write};
 
-use mio::Token;
+use mio::{net::TcpStream, Token};
 
 pub struct Connection {
-    token: Token,
-    socket: TcpStream,
-    is_open: bool,
+    pub token: Token,
+    pub socket: TcpStream,
+    pub is_open: bool,
     received: String,
     pub to_send: String,
 }
 
 impl Connection {
-    fn new(token: Token, socket: TcpStream) -> Connection {
+    pub fn new(token: Token, socket: TcpStream) -> Connection {
         Connection {
             token,
             socket,
