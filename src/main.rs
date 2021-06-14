@@ -9,6 +9,9 @@ use std::str::from_utf8;
 
 use env_logger;
 
+mod connection;
+use connection::Connection;
+
 // Setup some tokens to allow us to identify which event is for which socket.
 const SERVER: Token = Token(0);
 
@@ -32,7 +35,7 @@ fn main() -> io::Result<()> {
         .register(&mut server, SERVER, Interest::READABLE)?;
 
     // Map of `Token` -> `TcpStream`.
-    let mut connections = HashMap::new();
+    let mut connections = HashMap::<Token, Connection>::new();
     // Unique token for each incoming connection.
     let mut unique_token = Token(SERVER.0 + 1);
 
@@ -48,7 +51,7 @@ fn main() -> io::Result<()> {
                 SERVER => loop {
                     // Received an event for the TCP server socket, which
                     // indicates we can accept an connection.
-                    let (mut connection, address) = match server.accept() {
+                    let (mut socket, address) = match server.accept() {
                         Ok((connection, address)) => (connection, address),
                         Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                             // If we get a `WouldBlock` error we know our
@@ -68,10 +71,12 @@ fn main() -> io::Result<()> {
 
                     let token = next(&mut unique_token);
                     poll.registry().register(
-                        &mut connection,
+                        &mut socket,
                         token,
                         Interest::READABLE.add(Interest::WRITABLE),
                     )?;
+
+                    let connection = Connection::new(token, socket);
 
                     connections.insert(token, connection);
                 },
@@ -101,12 +106,12 @@ fn next(current: &mut Token) -> Token {
 /// Returns `true` if the connection is done.
 fn handle_connection_event(
     registry: &Registry,
-    connection: &mut TcpStream,
+    connection: &mut Connection,
     event: &Event,
 ) -> io::Result<bool> {
     if event.is_writable() {
         // We can (maybe) write to the connection.
-        match connection.write(DATA) {
+        match connection.socket.write(DATA) {
             // We want to write the entire `DATA` buffer in a single go. If we
             // write less we'll return a short write error (same as
             // `io::Write::write_all` does).
@@ -114,7 +119,7 @@ fn handle_connection_event(
             Ok(_) => {
                 // After we've written something we'll reregister the connection
                 // to only respond to readable events.
-                registry.reregister(connection, event.token(), Interest::READABLE)?
+                registry.reregister(&mut connection.socket, event.token(), Interest::READABLE)?
             }
             // Would block "errors" are the OS's way of saying that the
             // connection is not actually ready to perform this I/O operation.
@@ -134,7 +139,7 @@ fn handle_connection_event(
         let mut bytes_read = 0;
         // We can (maybe) read from the connection.
         loop {
-            match connection.read(&mut received_data[bytes_read..]) {
+            match connection.socket.read(&mut received_data[bytes_read..]) {
                 Ok(0) => {
                     // Reading 0 bytes means the other side has closed the
                     // connection or is done writing, then so are we.
