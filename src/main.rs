@@ -24,7 +24,7 @@ fn main() -> io::Result<()> {
     // Create a poll instance.
     let mut poll = Poll::new()?;
     // Create storage for events.
-    let mut events = Events::with_capacity(128);
+    let mut events = Events::with_capacity(1024);
 
     // Setup the TCP server socket.
     let addr = "127.0.0.1:9000".parse().unwrap();
@@ -70,26 +70,18 @@ fn main() -> io::Result<()> {
                     println!("Accepted connection from: {}", address);
 
                     let token = next(&mut unique_token);
-                    poll.registry().register(
-                        &mut socket,
-                        token,
-                        Interest::READABLE.add(Interest::WRITABLE),
-                    )?;
+                    poll.registry()
+                        .register(&mut socket, token, Interest::WRITABLE)?;
 
-                    let connection = Connection::new(token, socket);
+                    let mut connection = Connection::new(token, socket);
+                    connection.to_send = "Hola!".into();
 
                     connections.insert(token, connection);
                 },
                 token => {
                     // Maybe received an event for a TCP connection.
-                    let done = if let Some(connection) = connections.get_mut(&token) {
-                        handle_connection_event(poll.registry(), connection, event)?
-                    } else {
-                        // Sporadic events happen, we can safely ignore them.
-                        false
-                    };
-                    if done {
-                        connections.remove(&token);
+                    if let Some(connection) = connections.get_mut(&token) {
+                        handle_connection_event(poll.registry(), connection, event)?;
                     }
                 }
             }
@@ -110,15 +102,25 @@ fn handle_connection_event(
     event: &Event,
 ) -> io::Result<bool> {
     if event.is_writable() {
+        println!("Writting");
+
+        // Do we have something to send?
+        if connection.to_send.len() < 1 {
+            println!("We don't have anything to send.");
+
+            return Ok(false);
+        }
+
         // We can (maybe) write to the connection.
-        match connection.socket.write(&connection.to_send) {
+        match connection.socket.write_all(&connection.to_send) {
             // We want to write the entire `DATA` buffer in a single go. If we
             // write less we'll return a short write error (same as
             // `io::Write::write_all` does).
-            Ok(n) if n < connection.to_send.len() => return Err(io::ErrorKind::WriteZero.into()),
+            // Ok(n) if n < connection.to_send.len() => return Err(io::ErrorKind::WriteZero.into()),
             Ok(_) => {
                 // After we've written something we'll reregister the connection
-                // to only respond to readable events.
+                // to only respond to readable events, and clear the information
+                // to send buffer.
                 connection.to_send.clear();
                 registry.reregister(&mut connection.socket, event.token(), Interest::READABLE)?
             }
@@ -135,6 +137,8 @@ fn handle_connection_event(
     }
 
     if event.is_readable() {
+        println!("Reading!");
+
         let mut connection_closed = false;
         // let mut received_data = vec![0; 4096];
         let mut bytes_read = 0;
@@ -147,13 +151,23 @@ fn handle_connection_event(
                 Ok(0) => {
                     // Reading 0 bytes means the other side has closed the
                     // connection or is done writing, then so are we.
-                    connection_closed = true;
+                    // connection_closed = true;
 
-                    println!("{:?}", connection.received);
+                    println!("Received nothing!");
+
+                    registry.reregister(
+                        &mut connection.socket,
+                        event.token(),
+                        Interest::WRITABLE.add(Interest::READABLE),
+                    )?;
 
                     break;
                 }
                 Ok(n) => {
+                    println!("Received something!");
+
+                    println!("{:?}", connection.received);
+
                     bytes_read += n;
                     if bytes_read == connection.received.len() {
                         connection
@@ -172,6 +186,7 @@ fn handle_connection_event(
 
         if bytes_read != 0 {
             let received_data = &connection.received[..bytes_read];
+            connection.to_send = received_data.into();
             if let Ok(str_buf) = from_utf8(received_data) {
                 println!("Received data: {}", str_buf.trim_end());
             } else {
