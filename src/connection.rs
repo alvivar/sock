@@ -4,8 +4,8 @@ pub struct Connection {
     pub token: Token,
     pub socket: TcpStream,
     pub is_open: bool,
-    pub received: Vec<u8>,
-    pub to_send: Vec<u8>,
+    // pub received: Vec<u8>,
+    // pub to_send: Vec<u8>,
 }
 
 impl Connection {
@@ -14,8 +14,8 @@ impl Connection {
             token,
             socket,
             is_open: true,
-            received: Vec::with_capacity(4096),
-            to_send: Vec::with_capacity(4096),
+            // received: Vec::with_capacity(4096),
+            // to_send: Vec::with_capacity(4096),
         }
     }
 

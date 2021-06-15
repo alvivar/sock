@@ -16,7 +16,7 @@ use connection::Connection;
 const SERVER: Token = Token(0);
 
 // Some data we'll send over the connection.
-// const DATA: &[u8] = b"Hello world!\n";
+const DATA: &[u8] = b"Hello world!\n";
 
 fn main() -> io::Result<()> {
     env_logger::init();
@@ -70,12 +70,13 @@ fn main() -> io::Result<()> {
                     println!("Accepted connection from: {}", address);
 
                     let token = next(&mut unique_token);
-                    poll.registry()
-                        .register(&mut socket, token, Interest::WRITABLE)?;
+                    poll.registry().register(
+                        &mut socket,
+                        token,
+                        Interest::WRITABLE.add(Interest::READABLE),
+                    )?;
 
-                    let mut connection = Connection::new(token, socket);
-                    connection.to_send = "Hola!".into();
-
+                    let connection = Connection::new(token, socket);
                     connections.insert(token, connection);
                 },
                 token => {
@@ -104,15 +105,8 @@ fn handle_connection_event(
     if event.is_writable() {
         println!("Writting");
 
-        // Do we have something to send?
-        if connection.to_send.len() < 1 {
-            println!("We don't have anything to send.");
-
-            return Ok(false);
-        }
-
         // We can (maybe) write to the connection.
-        match connection.socket.write_all(&connection.to_send) {
+        match connection.socket.write(DATA) {
             // We want to write the entire `DATA` buffer in a single go. If we
             // write less we'll return a short write error (same as
             // `io::Write::write_all` does).
@@ -121,7 +115,6 @@ fn handle_connection_event(
                 // After we've written something we'll reregister the connection
                 // to only respond to readable events, and clear the information
                 // to send buffer.
-                connection.to_send.clear();
                 registry.reregister(&mut connection.socket, event.token(), Interest::READABLE)?
             }
             // Would block "errors" are the OS's way of saying that the
@@ -140,39 +133,29 @@ fn handle_connection_event(
         println!("Reading!");
 
         let mut connection_closed = false;
-        // let mut received_data = vec![0; 4096];
+        let mut received_data = vec![0; 10];
         let mut bytes_read = 0;
+
         // We can (maybe) read from the connection.
         loop {
-            match connection
-                .socket
-                .read(&mut connection.received[bytes_read..])
-            {
+            match connection.socket.read(&mut received_data[bytes_read..]) {
                 Ok(0) => {
                     // Reading 0 bytes means the other side has closed the
                     // connection or is done writing, then so are we.
-                    // connection_closed = true;
+                    connection_closed = true;
 
                     println!("Received nothing!");
-
-                    registry.reregister(
-                        &mut connection.socket,
-                        event.token(),
-                        Interest::WRITABLE.add(Interest::READABLE),
-                    )?;
 
                     break;
                 }
                 Ok(n) => {
                     println!("Received something!");
 
-                    println!("{:?}", connection.received);
+                    println!("{:?}", received_data);
 
                     bytes_read += n;
-                    if bytes_read == connection.received.len() {
-                        connection
-                            .received
-                            .resize(connection.received.len() + 1024, 0);
+                    if bytes_read == received_data.len() {
+                        received_data.resize(received_data.len() + 1024, 0);
                     }
                 }
                 // Would block "errors" are the OS's way of saying that the
@@ -185,8 +168,7 @@ fn handle_connection_event(
         }
 
         if bytes_read != 0 {
-            let received_data = &connection.received[..bytes_read];
-            connection.to_send = received_data.into();
+            let received_data = &received_data[..bytes_read];
             if let Ok(str_buf) = from_utf8(received_data) {
                 println!("Received data: {}", str_buf.trim_end());
             } else {
@@ -197,6 +179,9 @@ fn handle_connection_event(
         if connection_closed {
             println!("Connection closed");
             return Ok(true);
+        } else {
+            // Let's prepare for writing again.
+            registry.reregister(&mut connection.socket, event.token(), Interest::WRITABLE)?;
         }
     }
 
