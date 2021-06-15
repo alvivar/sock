@@ -1,7 +1,7 @@
 // You can run this example from the root of the mio repo:
 // cargo run --example tcp_server --features="os-poll net"
 use mio::event::Event;
-use mio::net::{TcpListener, TcpStream};
+use mio::net::TcpListener;
 use mio::{Events, Interest, Poll, Registry, Token};
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
@@ -16,7 +16,7 @@ use connection::Connection;
 const SERVER: Token = Token(0);
 
 // Some data we'll send over the connection.
-const DATA: &[u8] = b"Hello world!\n";
+// const DATA: &[u8] = b"Hello world!\n";
 
 fn main() -> io::Result<()> {
     env_logger::init();
@@ -111,14 +111,15 @@ fn handle_connection_event(
 ) -> io::Result<bool> {
     if event.is_writable() {
         // We can (maybe) write to the connection.
-        match connection.socket.write(DATA) {
+        match connection.socket.write(&connection.to_send) {
             // We want to write the entire `DATA` buffer in a single go. If we
             // write less we'll return a short write error (same as
             // `io::Write::write_all` does).
-            Ok(n) if n < DATA.len() => return Err(io::ErrorKind::WriteZero.into()),
+            Ok(n) if n < connection.to_send.len() => return Err(io::ErrorKind::WriteZero.into()),
             Ok(_) => {
                 // After we've written something we'll reregister the connection
                 // to only respond to readable events.
+                connection.to_send.clear();
                 registry.reregister(&mut connection.socket, event.token(), Interest::READABLE)?
             }
             // Would block "errors" are the OS's way of saying that the
@@ -135,21 +136,29 @@ fn handle_connection_event(
 
     if event.is_readable() {
         let mut connection_closed = false;
-        let mut received_data = vec![0; 4096];
+        // let mut received_data = vec![0; 4096];
         let mut bytes_read = 0;
         // We can (maybe) read from the connection.
         loop {
-            match connection.socket.read(&mut received_data[bytes_read..]) {
+            match connection
+                .socket
+                .read(&mut connection.received[bytes_read..])
+            {
                 Ok(0) => {
                     // Reading 0 bytes means the other side has closed the
                     // connection or is done writing, then so are we.
                     connection_closed = true;
+
+                    println!("{:?}", connection.received);
+
                     break;
                 }
                 Ok(n) => {
                     bytes_read += n;
-                    if bytes_read == received_data.len() {
-                        received_data.resize(received_data.len() + 1024, 0);
+                    if bytes_read == connection.received.len() {
+                        connection
+                            .received
+                            .resize(connection.received.len() + 1024, 0);
                     }
                 }
                 // Would block "errors" are the OS's way of saying that the
@@ -162,7 +171,7 @@ fn handle_connection_event(
         }
 
         if bytes_read != 0 {
-            let received_data = &received_data[..bytes_read];
+            let received_data = &connection.received[..bytes_read];
             if let Ok(str_buf) = from_utf8(received_data) {
                 println!("Received data: {}", str_buf.trim_end());
             } else {
