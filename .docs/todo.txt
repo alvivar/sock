@@ -1,4 +1,8 @@
 
+    A socket IO cycle, read, write, threadable
+    Send the socket IO to a the thread pool when detected
+
+    A thread pool that handles received work
     Support Bytes instead of Strings for the connection data.
 
 
