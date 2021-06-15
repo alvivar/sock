@@ -1,19 +1,23 @@
+use std::net::SocketAddr;
+
 use mio::{net::TcpStream, Token};
 
 pub struct Connection {
     pub token: Token,
     pub socket: TcpStream,
-    pub is_open: bool,
+    pub address: SocketAddr,
+    pub open: bool,
     // pub received: Vec<u8>,
     // pub to_send: Vec<u8>,
 }
 
 impl Connection {
-    pub fn new(token: Token, socket: TcpStream) -> Connection {
+    pub fn new(token: Token, socket: TcpStream, address: SocketAddr) -> Connection {
         Connection {
             token,
             socket,
-            is_open: true,
+            address,
+            open: true,
             // received: Vec::with_capacity(4096),
             // to_send: Vec::with_capacity(4096),
         }

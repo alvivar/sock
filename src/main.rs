@@ -40,7 +40,7 @@ fn main() -> io::Result<()> {
 
     println!("You can connect to the server using `nc`:");
     println!(" $ nc 127.0.0.1 9000");
-    println!("You'll see our welcome message and anything you type will  be printed here.");
+    println!("You'll see our welcome message and anything you type will be printed here.");
 
     loop {
         poll.poll(&mut events, None)?;
@@ -75,7 +75,7 @@ fn main() -> io::Result<()> {
                         Interest::WRITABLE.add(Interest::READABLE),
                     )?;
 
-                    let connection = Connection::new(token, socket);
+                    let connection = Connection::new(token, socket, address);
                     connections.insert(token, connection);
                 },
                 token => {
@@ -137,7 +137,7 @@ fn handle_connection_event(
     if event.is_readable() {
         println!("Reading!");
 
-        let mut connection_closed = false;
+        // let mut connection_closed = false;
         let mut received_data = vec![0; 256];
         let mut bytes_read = 0;
 
@@ -147,7 +147,7 @@ fn handle_connection_event(
                 Ok(0) => {
                     // Reading 0 bytes means the other side has closed the
                     // connection or is done writing, then so are we.
-                    connection_closed = true;
+                    connection.open = false;
                     break;
                 }
                 Ok(n) => {
@@ -174,7 +174,7 @@ fn handle_connection_event(
             }
         }
 
-        if connection_closed {
+        if !connection.open {
             println!("Connection closed");
             return Ok(true);
         } else {
