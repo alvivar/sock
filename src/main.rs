@@ -136,7 +136,7 @@ fn handle_connection_event(
         println!("Reading!");
 
         // let mut connection_closed = false;
-        let mut received_data = vec![0; 256];
+        let mut received_data = vec![0; 4096];
         let mut bytes_read = 0;
 
         // We can (maybe) read from the connection.
@@ -151,7 +151,7 @@ fn handle_connection_event(
                 Ok(n) => {
                     bytes_read += n;
                     if bytes_read == received_data.len() {
-                        received_data.resize(received_data.len() + 256, 0);
+                        received_data.resize(received_data.len() + 1024, 0);
                     }
                 }
                 // Would block "errors" are the OS's way of saying that the
