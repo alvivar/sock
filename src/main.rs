@@ -14,9 +14,6 @@ use env_logger;
 // Setup some tokens to allow us to identify which event is for which socket.
 const SERVER: Token = Token(0);
 
-// Some data we'll send over the connection.
-const DATA: &[u8] = b"Hello world!\n";
-
 fn main() -> io::Result<()> {
     env_logger::init();
 
@@ -107,19 +104,20 @@ fn handle_connection_event(
     connection: &mut Connection,
     event: &Event,
 ) -> io::Result<bool> {
-    if event.is_writable() {
+    if event.is_writable() && connection.to_send.len() > 0 {
         println!("Writting");
 
         // We can (maybe) write to the connection.
-        match connection.socket.write(DATA) {
+        match connection.socket.write(&connection.to_send) {
             // We want to write the entire `DATA` buffer in a single go. If we
             // write less we'll return a short write error (same as
             // `io::Write::write_all` does).
-            Ok(n) if n < DATA.len() => return Err(io::ErrorKind::WriteZero.into()),
+            // Ok(n) if n < DATA.len() => return Err(io::ErrorKind::WriteZero.into()),
             Ok(_) => {
                 // After we've written something we'll reregister the connection
                 // to only respond to readable events, and clear the information
                 // to send buffer.
+                connection.to_send.clear();
                 registry.reregister(&mut connection.socket, event.token(), Interest::READABLE)?
             }
             // Would block "errors" are the OS's way of saying that the
@@ -172,14 +170,15 @@ fn handle_connection_event(
             } else {
                 println!("Received (none UTF-8) data: {:?}", received_data);
             }
+
+            // Something to send. Let's reregister for writting.
+            connection.to_send.append(&mut received_data.into());
+            registry.reregister(&mut connection.socket, event.token(), Interest::WRITABLE)?;
         }
 
         if !connection.open {
             println!("Connection closed");
             return Ok(true);
-        } else {
-            // Let's prepare for writing again.
-            registry.reregister(&mut connection.socket, event.token(), Interest::WRITABLE)?;
         }
     }
 

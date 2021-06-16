@@ -1,9 +1,13 @@
 
+    2021.06.15
+    x Writing only with a purpose
+
+
     A socket IO cycle, read, write, threadable
     Send the socket IO to a the thread pool when detected
 
     A thread pool that handles received work
-    Support Bytes instead of Strings for the connection data.
+    Support Bytes instead of Strings for the connection data
 
 
     2021.06.07
