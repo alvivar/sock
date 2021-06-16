@@ -171,7 +171,9 @@ fn handle_connection_event(
                 println!("Received (none UTF-8) data: {:?}", received_data);
             }
 
-            // Something to send. Let's reregister for writting.
+            // We received data. This is a good place to parse the data and
+            // respond accordingly.
+
             connection.to_send.append(&mut received_data.into());
             registry.reregister(&mut connection.socket, event.token(), Interest::WRITABLE)?;
         }
