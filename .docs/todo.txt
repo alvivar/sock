@@ -1,14 +1,18 @@
 
-    2021.06.15
-    x Writing only with a purpose
+    2021.06.20
 
 
-    A socket IO cycle, read, write, threadable
+    Work could be a read or a write, classify
+    A better name for Token in printlns
     Send the socket IO to a the thread pool when detected
 
     A thread pool that handles received work
     Support Bytes instead of Strings for the connection data
 
+
+    2021.06.15
+    x A socket IO cycle, read, write, threadable
+    x Writing only with a purpose
 
     2021.06.07
     x Started prototype.
