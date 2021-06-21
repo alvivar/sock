@@ -15,6 +15,21 @@ mod pool;
 use connection::Connection;
 use pool::ThreadPool;
 
+fn would_block(err: &io::Error) -> bool {
+    err.kind() == io::ErrorKind::WouldBlock
+}
+
+fn interrupted(err: &io::Error) -> bool {
+    err.kind() == io::ErrorKind::Interrupted
+}
+
+fn next(current: &mut Token) -> Token {
+    let next = current.0;
+    current.0 += 1;
+
+    Token(next)
+}
+
 fn main() -> io::Result<()> {
     env_logger::init();
 
@@ -24,7 +39,7 @@ fn main() -> io::Result<()> {
     let mut events = Events::with_capacity(1024);
 
     // Setup the TCP server socket.
-    let addr = "127.0.0.1:1984".parse().unwrap();
+    let addr = "0.0.0.0:1984".parse().unwrap();
     let mut server = TcpListener::bind(addr)?;
 
     // Register the server with poll to receive events for it.
@@ -53,7 +68,7 @@ fn main() -> io::Result<()> {
         // Waiting for work!
         pool.submit(move || {
             loop {
-                let mut connection = pool_rx.lock().unwrap().recv().unwrap();
+                let mut conn = pool_rx.lock().unwrap().recv().unwrap();
 
                 // We can (maybe) read from the connection.
                 println!("Trying to read");
@@ -62,12 +77,12 @@ fn main() -> io::Result<()> {
                 let mut bytes_read = 0;
 
                 loop {
-                    match connection.socket.read(&mut received_data[bytes_read..]) {
+                    match conn.socket.read(&mut received_data[bytes_read..]) {
                         Ok(0) => {
                             // Reading 0 bytes means the other side has closed
                             // the connection or is done writing, then so are
                             // we.
-                            connection.open = false;
+                            conn.open = false;
                             break;
                         }
                         Ok(n) => {
@@ -83,9 +98,9 @@ fn main() -> io::Result<()> {
                         Err(ref err) if interrupted(err) => continue,
                         // Other errors we'll consider fatal.
                         Err(err) => {
-                            let id = connection.token.0;
-                            let addr = connection.address;
-                            println!("Error with connection {} at {}: {}", id, addr, err);
+                            let id = conn.token.0;
+                            let addr = conn.address;
+                            println!("Error with connection {} to {}: {}", id, addr, err);
                             break;
                         }
                     }
@@ -102,29 +117,29 @@ fn main() -> io::Result<()> {
                     // Data received. This is a good place to parse and respond
                     // accordingly.
 
-                    connection.to_send.append(&mut received_data.into());
+                    conn.to_send.append(&mut received_data.into());
                 }
 
                 println!("Trying to write");
-                if connection.to_send.len() > 0 {
-                    println!("Writing: {:?}", &connection.to_send);
+                if conn.to_send.len() > 0 {
+                    println!("Writing: {:?}", &conn.to_send);
 
                     // We can (maybe) write to the connection.
-                    match connection.socket.write(&connection.to_send) {
+                    match conn.socket.write(&conn.to_send) {
                         // We want to write the entire `DATA` buffer in a
                         // single go. If we write less we'll return a short
                         // write error (same as `io::Write::write_all` does).
-                        Ok(n) if n < connection.to_send.len() => {
-                            let id = connection.token.0;
-                            let addr = connection.address;
-                            println!("Error with connection {} at {}: IO WriteZero.", id, addr,);
+                        Ok(n) if n < conn.to_send.len() => {
+                            let id = conn.token.0;
+                            let addr = conn.address;
+                            println!("WriteZero error with connection {} to {}", id, addr,);
                             break;
                         }
                         Ok(_) => {
                             // After we've written something we'll reregister
                             // the connection to only respond to readable
                             // events, and clear the information to send buffer.
-                            connection.to_send.clear();
+                            conn.to_send.clear();
                         }
                         // Would block "errors" are the OS's way of saying that
                         // the connection is not actually ready to perform this
@@ -136,21 +151,21 @@ fn main() -> io::Result<()> {
                         }
                         // Other errors we'll consider fatal.
                         Err(err) => {
-                            let id = connection.token.0;
-                            let addr = connection.address;
-                            println!("Error with connection {} at {}: {}", id, addr, err);
+                            let id = conn.token.0;
+                            let addr = conn.address;
+                            println!("Error with connection {} to {}: {}", id, addr, err);
                             break;
                         }
                     }
                 }
 
                 // Is the end?
-                if !connection.open {
+                if !conn.open {
                     println!("Connection closed");
                 }
 
                 // Let's reregister the connection for more IO events.
-                ready_tx.send(connection).unwrap();
+                ready_tx.send(conn).unwrap();
             }
         });
     }
@@ -194,8 +209,8 @@ fn main() -> io::Result<()> {
                         Interest::WRITABLE.add(Interest::READABLE),
                     )?;
 
-                    let connection = Connection::new(token, socket, address);
-                    connections.insert(token, connection);
+                    let conn = Connection::new(token, socket, address);
+                    connections.insert(token, conn);
                 },
                 token => {
                     // Maybe received an event for a TCP connection.
@@ -216,49 +231,26 @@ fn main() -> io::Result<()> {
         loop {
             let try_conn = ready_rx.try_recv();
             match try_conn {
-                Ok(connection) if !connection.open => {
-                    println!("Connection {} closed", connection.token.0);
+                Ok(conn) if !conn.open => {
+                    println!("Connection {} closed", conn.token.0);
                 }
-                Ok(mut connection) => {
-                    if connection.to_send.len() > 0 {
-                        println!("Connection {} has something to send", connection.token.0);
+                Ok(mut conn) => {
+                    if conn.to_send.len() > 0 {
+                        println!("Connection {} has something to write", conn.token.0);
                         poll.registry()
-                            .reregister(
-                                &mut connection.socket,
-                                connection.token,
-                                Interest::WRITABLE,
-                            )
+                            .reregister(&mut conn.socket, conn.token, Interest::WRITABLE)
                             .unwrap();
                     } else {
-                        println!("Connection {} can receive something", connection.token.0);
+                        println!("Connection {} could read something", conn.token.0);
                         poll.registry()
-                            .reregister(
-                                &mut connection.socket,
-                                connection.token,
-                                Interest::READABLE,
-                            )
+                            .reregister(&mut conn.socket, conn.token, Interest::READABLE)
                             .unwrap();
                     }
 
-                    connections.insert(connection.token, connection);
+                    connections.insert(conn.token, conn);
                 }
                 _ => break,
             }
         }
     }
-}
-
-fn next(current: &mut Token) -> Token {
-    let next = current.0;
-    current.0 += 1;
-
-    Token(next)
-}
-
-fn would_block(err: &io::Error) -> bool {
-    err.kind() == io::ErrorKind::WouldBlock
-}
-
-fn interrupted(err: &io::Error) -> bool {
-    err.kind() == io::ErrorKind::Interrupted
 }
