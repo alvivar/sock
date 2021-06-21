@@ -8,4 +8,5 @@ edition = "2018"
 
 [dependencies]
 mio = { version = "0.7.11", features = ["net", "os-poll"] }
+crossbeam-channel = "0.5.1"
 env_logger = "0.8.4"

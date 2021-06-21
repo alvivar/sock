@@ -1,10 +1,10 @@
+use crossbeam_channel::unbounded;
 use mio::net::TcpListener;
 use mio::{Events, Interest, Poll, Token};
 
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::str::from_utf8;
-use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 
 use env_logger;
@@ -54,21 +54,21 @@ fn main() -> io::Result<()> {
     let mut unique_token = Token(SERVER.0 + 1);
 
     // A thread pool handles each connection IO operations with these channels.
-    let (work_tx, work_rx) = channel::<Connection>();
+    let (work_tx, work_rx) = unbounded::<Connection>();
     let work_rx = Arc::new(Mutex::new(work_rx));
 
     // When the work is done, we reregister with this for more IO events.
-    let (ready_tx, ready_rx) = channel::<Connection>();
+    let (ready_tx, ready_rx) = unbounded::<Connection>();
 
     let mut pool = ThreadPool::new(4);
     for _ in 0..pool.size() {
-        let pool_rx = work_rx.clone();
+        let work_rx = work_rx.clone();
         let ready_tx = ready_tx.clone();
 
         // Waiting for work!
         pool.submit(move || {
             loop {
-                let mut conn = pool_rx.lock().unwrap().recv().unwrap();
+                let mut conn = work_rx.lock().unwrap().recv().unwrap();
 
                 // We can (maybe) read from the connection.
                 println!("Trying to read");
@@ -117,45 +117,50 @@ fn main() -> io::Result<()> {
                     // Data received. This is a good place to parse and respond
                     // accordingly.
 
-                    conn.to_send.append(&mut received_data.into());
+                    conn.send_tx.send(received_data.into()).unwrap();
                 }
 
                 println!("Trying to write");
-                if conn.to_send.len() > 0 {
-                    println!("Writing: {:?}", &conn.to_send);
+                loop {
+                    match conn.send_rx.try_recv() {
+                        Ok(data) => {
+                            println!("Writing: {:?}", data);
 
-                    // We can (maybe) write to the connection.
-                    match conn.socket.write(&conn.to_send) {
-                        // We want to write the entire `DATA` buffer in a
-                        // single go. If we write less we'll return a short
-                        // write error (same as `io::Write::write_all` does).
-                        Ok(n) if n < conn.to_send.len() => {
-                            let id = conn.token.0;
-                            let addr = conn.address;
-                            println!("WriteZero error with connection {} to {}", id, addr,);
-                            break;
+                            // We can (maybe) write to the connection.
+                            match conn.socket.write(&data) {
+                                // We want to write the entire `DATA` buffer in a single
+                                // go. If we write less we'll return a short write error
+                                // (same as `io::Write::write_all` does).
+                                Ok(n) if n < data.len() => {
+                                    let id = conn.token.0;
+                                    let addr = conn.address;
+                                    println!("WriteZero error with connection {} to {}", id, addr,);
+                                    break;
+                                }
+                                Ok(_) => {
+                                    // After we've written something we'll reregister
+                                    // the connection to only respond to readable
+                                    // events, and clear the information to send buffer.
+                                }
+                                // Would block "errors" are the OS's way of saying that
+                                // the connection is not actually ready to perform this
+                                // I/O operation.
+                                Err(ref err) if would_block(err) => {}
+                                // Got interrupted (how rude!), we'll try again.
+                                Err(ref err) if interrupted(err) => {
+                                    // return handle_connection_event(registry, connection, event)
+                                }
+                                // Other errors we'll consider fatal.
+                                Err(err) => {
+                                    let id = conn.token.0;
+                                    let addr = conn.address;
+                                    println!("Error with connection {} to {}: {}", id, addr, err);
+                                    break;
+                                }
+                            }
                         }
-                        Ok(_) => {
-                            // After we've written something we'll reregister
-                            // the connection to only respond to readable
-                            // events, and clear the information to send buffer.
-                            conn.to_send.clear();
-                        }
-                        // Would block "errors" are the OS's way of saying that
-                        // the connection is not actually ready to perform this
-                        // I/O operation.
-                        Err(ref err) if would_block(err) => {}
-                        // Got interrupted (how rude!), we'll try again.
-                        Err(ref err) if interrupted(err) => {
-                            // return handle_connection_event(registry, connection, event)
-                        }
-                        // Other errors we'll consider fatal.
-                        Err(err) => {
-                            let id = conn.token.0;
-                            let addr = conn.address;
-                            println!("Error with connection {} to {}: {}", id, addr, err);
-                            break;
-                        }
+
+                        Err(_) => break,
                     }
                 }
 
@@ -212,6 +217,7 @@ fn main() -> io::Result<()> {
                     let conn = Connection::new(token, socket, address);
                     connections.insert(token, conn);
                 },
+
                 token => {
                     // Maybe received an event for a TCP connection.
                     if let Some(connection) = connections.remove(&token) {
@@ -234,8 +240,9 @@ fn main() -> io::Result<()> {
                 Ok(conn) if !conn.open => {
                     println!("Connection {} closed", conn.token.0);
                 }
+
                 Ok(mut conn) => {
-                    if conn.to_send.len() > 0 {
+                    if conn.send_rx.len() > 0 {
                         println!("Connection {} has something to write", conn.token.0);
                         poll.registry()
                             .reregister(&mut conn.socket, conn.token, Interest::WRITABLE)
@@ -249,6 +256,7 @@ fn main() -> io::Result<()> {
 
                     connections.insert(conn.token, conn);
                 }
+
                 _ => break,
             }
         }
