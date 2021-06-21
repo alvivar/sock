@@ -6,7 +6,8 @@ I wanted to learn [how to make
 websockets](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocket_servers),
 how to use [MIO](https://github.com/tokio-rs/mio) as non-blocking I/O in a
 multi-thread way, and how to improve the way [Bite](github.com/alvivar/bite)
-handles connections.
+handles connections. Based on [MIO TCP
+example](https://github.com/tokio-rs/mio/blob/master/examples/tcp_server.rs).
 
 ## Try it
 
