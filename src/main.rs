@@ -11,7 +11,6 @@ use env_logger;
 
 mod connection;
 mod pool;
-mod work;
 
 use connection::Connection;
 use pool::ThreadPool;
@@ -56,13 +55,12 @@ fn main() -> io::Result<()> {
             loop {
                 let mut connection = pool_rx.lock().unwrap().recv().unwrap();
 
-                // Read
-                println!("Reading!");
+                // We can (maybe) read from the connection.
+                println!("Trying to read");
 
                 let mut received_data = vec![0; 4096];
                 let mut bytes_read = 0;
 
-                // We can (maybe) read from the connection.
                 loop {
                     match connection.socket.read(&mut received_data[bytes_read..]) {
                         Ok(0) => {
@@ -87,7 +85,7 @@ fn main() -> io::Result<()> {
                         Err(err) => {
                             let id = connection.token.0;
                             let addr = connection.address;
-                            println!("Fatal error with connection {} at {}: {}", id, addr, err);
+                            println!("Error with connection {} at {}: {}", id, addr, err);
                             break;
                         }
                     }
@@ -107,23 +105,21 @@ fn main() -> io::Result<()> {
                     connection.to_send.append(&mut received_data.into());
                 }
 
-                if !connection.open {
-                    println!("Connection closed");
-                }
-
-                // Write
-
+                println!("Trying to write");
                 if connection.to_send.len() > 0 {
-                    println!("Writing!");
+                    println!("Writing: {:?}", &connection.to_send);
 
                     // We can (maybe) write to the connection.
                     match connection.socket.write(&connection.to_send) {
-                        // @todo? We want to write the entire `DATA` buffer in a
+                        // We want to write the entire `DATA` buffer in a
                         // single go. If we write less we'll return a short
                         // write error (same as `io::Write::write_all` does).
-                        // Ok(n) if n < connection.to_send.len() => {
-                        //     return Err(io::ErrorKind::WriteZero.into())
-                        // }
+                        Ok(n) if n < connection.to_send.len() => {
+                            let id = connection.token.0;
+                            let addr = connection.address;
+                            println!("Error with connection {} at {}: IO WriteZero.", id, addr,);
+                            break;
+                        }
                         Ok(_) => {
                             // After we've written something we'll reregister
                             // the connection to only respond to readable
@@ -142,13 +138,18 @@ fn main() -> io::Result<()> {
                         Err(err) => {
                             let id = connection.token.0;
                             let addr = connection.address;
-                            println!("Fatal error with connection {} at {}: {}", id, addr, err);
+                            println!("Error with connection {} at {}: {}", id, addr, err);
                             break;
                         }
                     }
                 }
 
-                // Now, let's reregister the connection for more IO events.
+                // Is the end?
+                if !connection.open {
+                    println!("Connection closed");
+                }
+
+                // Let's reregister the connection for more IO events.
                 ready_tx.send(connection).unwrap();
             }
         });
@@ -199,7 +200,9 @@ fn main() -> io::Result<()> {
                 token => {
                     // Maybe received an event for a TCP connection.
                     if let Some(connection) = connections.remove(&token) {
-                        if event.is_readable() || event.is_writable() {
+                        if event.is_readable() {
+                            work_tx.send(connection).unwrap();
+                        } else if event.is_writable() {
                             work_tx.send(connection).unwrap();
                         }
                     }
@@ -209,17 +212,16 @@ fn main() -> io::Result<()> {
             }
         }
 
-        // Let's reregister the connection for his purpose.
-
+        // Let's reregister the connection as needed.
         loop {
             let try_conn = ready_rx.try_recv();
             match try_conn {
                 Ok(connection) if !connection.open => {
-                    println!("Token {} closed", connection.token.0);
+                    println!("Connection {} closed", connection.token.0);
                 }
                 Ok(mut connection) => {
                     if connection.to_send.len() > 0 {
-                        println!("Token {} has something to send", connection.token.0);
+                        println!("Connection {} has something to send", connection.token.0);
                         poll.registry()
                             .reregister(
                                 &mut connection.socket,
@@ -228,7 +230,7 @@ fn main() -> io::Result<()> {
                             )
                             .unwrap();
                     } else {
-                        println!("Token {} can receive something", connection.token.0);
+                        println!("Connection {} can receive something", connection.token.0);
                         poll.registry()
                             .reregister(
                                 &mut connection.socket,
