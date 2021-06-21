@@ -3,11 +3,9 @@
 Simple multi-thread echo server in Rust.
 
 I wanted to learn [how to make
-websockets](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocket_servers)
-and how to use [MIO](https://github.com/tokio-rs/mio) as non-blocking I/O in a
-multi-thread way.
-
-A prototype to learn how to improve the way [Bite](github.com/alvivar/bite)
+websockets](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocket_servers),
+how to use [MIO](https://github.com/tokio-rs/mio) as non-blocking I/O in a
+multi-thread way, and how to improve the way [Bite](github.com/alvivar/bite)
 handles connections.
 
 ## Try it
