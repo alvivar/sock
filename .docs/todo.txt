@@ -1,11 +1,11 @@
 
+    The web socket protocol
+    Consider crossbeam instead of std
+
+
     2021.06.20
     x Work could be a read or a write, classify
     x A better name for Token in printlns
-
-
-    ?
-
 
     2021.06.15
     x Support Bytes instead of Strings for the connection data
