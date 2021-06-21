@@ -1,16 +1,16 @@
 
     2021.06.20
+    x Work could be a read or a write, classify
+    x A better name for Token in printlns
 
 
-    Work could be a read or a write, classify
-    A better name for Token in printlns
-    Send the socket IO to a the thread pool when detected
-
-    A thread pool that handles received work
-    Support Bytes instead of Strings for the connection data
+    ?
 
 
     2021.06.15
+    x Support Bytes instead of Strings for the connection data
+    x A thread pool that handles received work
+    x Send the socket IO to a the thread pool when detected
     x A socket IO cycle, read, write, threadable
     x Writing only with a purpose
 
