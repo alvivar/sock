@@ -1,9 +1,9 @@
 
     The web socket protocol
-    Consider crossbeam instead of std
 
 
     2021.06.20
+    x Consider crossbeam instead of std
     x Work could be a read or a write, classify
     x A better name for Token in printlns
 
