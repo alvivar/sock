@@ -4,7 +4,7 @@ Simple multi-thread echo server in Rust.
 
 I wanted to learn how to use [MIO](https://github.com/tokio-rs/mio) as
 non-blocking I/O in a multi-thread way, so I can improve the way
-[Bite](github.com/alvivar/bite) handles connections.
+[Bite](https://github.com/alvivar/bite) handles connections.
 
 Based on the [MIO TCP
 example](https://github.com/tokio-rs/mio/blob/master/examples/tcp_server.rs).
