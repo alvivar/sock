@@ -18,7 +18,3 @@ You can connect with **nc** on unix consoles:
     nc 127.0.0.1 1984
 
 Send a message, receive the same message.
-
-## For later
-
-- [Writing WebSocket servers](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocket_servers)
